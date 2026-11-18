@@ -17,6 +17,25 @@ const EXCLUDED_CUSTOMERS = new Set([
 function normalize(value: string) { return value.trim().replace(/\s+/g, ' ').toLowerCase(); }
 function monthName(date = new Date()) { return new Intl.DateTimeFormat('en-US', { month: 'long', timeZone: 'Asia/Kolkata' }).format(date); }
 
+// Sheets sometimes returns its internal date serial (e.g. 46337) instead of the
+// displayed date. Convert either representation to a consistent DD/MM/YYYY value.
+function parseSheetDate(value: unknown) {
+  const raw = String(value ?? '').trim();
+  if (!raw) return null;
+  if (/^\d{5}(?:\.\d+)?$/.test(raw)) return new Date(Date.UTC(1899, 11, 30) + Number(raw) * 86_400_000);
+  const dmy = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (dmy) return new Date(Date.UTC(Number(dmy[3]), Number(dmy[2]) - 1, Number(dmy[1])));
+  const parsed = new Date(raw);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function formatSheetDate(value: unknown) {
+  const date = parseSheetDate(value);
+  return date ? new Intl.DateTimeFormat('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric', timeZone: 'UTC' }).format(date) : String(value ?? '');
+}
+
+function dateSortValue(value: string) { return parseSheetDate(value)?.getTime() || 0; }
+
 function sheets() {
   const email = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
   const key = process.env.GOOGLE_PRIVATE_KEY?.replace(/\\n/g, '\n');
@@ -39,10 +58,10 @@ export async function readOrders(requestedSheet?: string) {
   const response = await sheets().spreadsheets.values.get({ spreadsheetId: SPREADSHEET_ID, range: `'${sheet}'!A1:K1000` });
   const values = response.data.values || [HEADER];
   const orders: SaleOrder[] = values.slice(1).map((value, index) => ({
-    row: index + 2, date: value[0] || '', so: value[1] || '', customer: value[2] || '', mobile: value[3] || '',
-    pax: value[4] || '', total: value[5] || '', credit: value[6] || '', creditDate: value[7] || '',
+    row: index + 2, date: formatSheetDate(value[0]), so: value[1] || '', customer: value[2] || '', mobile: value[3] || '',
+    pax: value[4] || '', total: value[5] || '', credit: value[6] || '', creditDate: formatSheetDate(value[7]),
     utr: value[8] || '', balance: value[9] || '', status: value[10] || '',
-  })).filter((order) => order.so);
+  })).filter((order) => order.so).sort((a, b) => dateSortValue(b.date) - dateSortValue(a.date) || b.row - a.row);
   return { sheet, orders };
 }
 
