@@ -39,8 +39,8 @@ function dateSortValue(value: string) { return parseSheetDate(value)?.getTime() 
 
 function erpSessionCookie(headers: Headers) {
   const cookieHeaders = (headers as Headers & { getSetCookie?: () => string[] }).getSetCookie?.() || [headers.get('set-cookie') || ''];
-  const match = cookieHeaders.join('\n').match(/(?:^|[,\n]\s*)sid=([^;,\s]+)/i);
-  if (!match) throw new Error('ERP login did not return a session cookie.');
+  const match = cookieHeaders.join('\n').match(/\bsid=([^;,\s]+)/i);
+  if (!match) throw new Error(`ERP login did not return a session cookie (${cookieHeaders.filter(Boolean).length} Set-Cookie header${cookieHeaders.filter(Boolean).length === 1 ? '' : 's'} received).`);
   return `sid=${match[1]}`;
 }
 
