@@ -23,7 +23,7 @@ function erpSessionCookie(headers: Headers) {
 async function erpAuthHeaders(base: string, user: string, password: string) {
   const apiKey = process.env.ERP_API_KEY; const apiSecret = process.env.ERP_API_SECRET;
   if (apiKey && apiSecret) return { Authorization: `token ${apiKey}:${apiSecret}`, Accept: 'application/json' };
-  const login = await fetch(`${base}/api/method/login`, { method: 'POST', body: new URLSearchParams({ usr: user, pwd: password }) });
+  const login = await fetch(`${base}/api/method/login`, { method: 'POST', headers: { Accept: 'application/json', 'Content-Type': 'application/json' }, body: JSON.stringify({ usr: user, pwd: password }), cache: 'no-store' });
   if (!login.ok) throw new Error('ERP login failed.');
   return { Cookie: erpSessionCookie(login.headers), Accept: 'application/json' };
 }
