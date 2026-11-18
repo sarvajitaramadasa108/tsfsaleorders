@@ -92,6 +92,13 @@ export async function updateOrder(sheet: string, order: SaleOrder) {
   await sheets().spreadsheets.values.update({ spreadsheetId: SPREADSHEET_ID, range: `'${sheet}'!A${order.row}:K${order.row}`, valueInputOption: 'USER_ENTERED', requestBody: { values } });
 }
 
+export type PaymentLog = { recordedAt: string; month: string; so: string; customer: string; amount: string; date: string; reference: string; mode: string };
+export async function readPaymentLog() {
+  const response = await sheets().spreadsheets.values.get({ spreadsheetId: SPREADSHEET_ID, range: "'Payment Log'!A2:H10000" });
+  const payments = (response.data.values || []).map((row) => ({ recordedAt: row[0] || '', month: row[1] || '', so: row[2] || '', customer: row[3] || '', amount: row[4] || '', date: row[5] || '', reference: row[6] || '', mode: row[7] || '' })).filter((item) => item.so).reverse();
+  return { payments };
+}
+
 async function ensurePaymentLog() {
   const api = sheets();
   const meta = await api.spreadsheets.get({ spreadsheetId: SPREADSHEET_ID, fields: 'sheets.properties.title' });
