@@ -14,8 +14,8 @@ const REGULAR_CUSTOMERS = new Set([
 ]);
 
 function erpSessionCookie(headers: Headers) {
-  const raw = headers.get('set-cookie') || '';
-  const match = raw.match(/(?:^|,\s*)sid=([^;,\s]+)/i);
+  const cookieHeaders = (headers as Headers & { getSetCookie?: () => string[] }).getSetCookie?.() || [headers.get('set-cookie') || ''];
+  const match = cookieHeaders.join('\n').match(/(?:^|[,\n]\s*)sid=([^;,\s]+)/i);
   if (!match) throw new Error('ERP login did not return a session cookie.');
   return `sid=${match[1]}`;
 }
