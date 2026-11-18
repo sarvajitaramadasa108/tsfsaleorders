@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { requireUser } from '@/lib/auth';
 
 export const dynamic = 'force-dynamic';
 
@@ -30,6 +31,7 @@ async function erpAuthHeaders(base: string, user: string, password: string): Pro
 
 export async function GET(request: Request) {
   try {
+    requireUser();
     const user = process.env.ERP_USER || ''; const password = process.env.ERP_PASSWORD || '';
     const base = process.env.ERP_URL || 'https://hkmvizagerp.frappe.cloud';
     if ((!process.env.ERP_API_KEY || !process.env.ERP_API_SECRET) && (!user || !password)) throw new Error('ERP credentials are not configured.');

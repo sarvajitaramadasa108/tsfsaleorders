@@ -10,11 +10,13 @@ const money = (value: string) => new Intl.NumberFormat('en-IN', { style: 'curren
 
 export default function Home() {
   const [data, setData] = useState<Data | null>(null); const [search, setSearch] = useState('');
+  const [authReady, setAuthReady] = useState(false); const [user, setUser] = useState('');
   const [status, setStatus] = useState('All'); const [selected, setSelected] = useState<Order | null>(null);
   const [loading, setLoading] = useState(true); const [saving, setSaving] = useState(false); const [notice, setNotice] = useState('');
   const [view, setView] = useState<'orders' | 'regular'>('orders'); const [regularData, setRegularData] = useState<RegularData | null>(null); const [regularLoading, setRegularLoading] = useState(false); const [regularMonth, setRegularMonth] = useState('2026-11');
   const load = async () => { setLoading(true); const response = await fetch('/api/orders', { cache: 'no-store' }); const json = await response.json(); if (!response.ok) setNotice(json.error); else setData(json); setLoading(false); };
-  useEffect(() => { load(); }, []);
+  useEffect(() => { fetch('/api/auth/me').then(async (response) => response.ok ? setUser((await response.json()).user) : undefined).finally(() => setAuthReady(true)); }, []);
+  useEffect(() => { if (user) load(); }, [user]);
   const loadRegular = async (month = regularMonth) => { setRegularLoading(true); setNotice(''); const response = await fetch(`/api/regular-orders?month=${month}`, { cache: 'no-store' }); const json = await response.json(); if (!response.ok) { setRegularData(null); setNotice(json.error || 'Unable to load regular orders.'); } else setRegularData(json); setRegularLoading(false); };
   useEffect(() => { if (view === 'regular') loadRegular(); }, [view]);
   const visible = useMemo(() => (data?.orders || []).filter((order) => {
@@ -29,6 +31,8 @@ export default function Home() {
   const unpaid = (data?.orders || []).filter((order) => /unpaid|not paid|partially/i.test(order.status)).length;
   const sync = async () => { setNotice('Syncing eligible orders and payments…'); const response = await fetch('/api/orders', { method: 'POST' }); const json = await response.json(); setNotice(response.ok ? `${json.added} order(s) added to ${json.sheet}. ${json.paymentsLogged || 0} manual payment(s) recorded.` : json.error); if (response.ok) load(); };
   const save = async () => { if (!selected || !data || saving) return; setSaving(true); try { const response = await fetch(`/api/orders/${selected.row}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sheet: data.sheet, order: selected, payment: selected.paymentAmount ? { amount: selected.paymentAmount, date: selected.paymentDate || '', reference: selected.paymentReference || '' } : undefined }) }); const json = await response.json(); if (!response.ok) setNotice(json.error); else { setNotice(selected.paymentAmount ? 'Payment recorded in Google Sheets and Payment Log.' : 'Order updated in Google Sheets.'); setStatus(json.order?.status || selected.status || 'All'); setSelected(null); load(); } } catch { setNotice('Unable to save the payment. Please try again.'); } finally { setSaving(false); } };
+  if (!authReady) return <main className="login-page"><p>Loading TSF Sales Orders…</p></main>;
+  if (!user) return <Login onSignedIn={setUser} />;
   return <main>
     <aside><div className="brand"><span>TSF</span><strong>Sales<br/>Orders</strong></div><nav><a className={view === 'orders' ? 'active' : ''} onClick={() => setView('orders')}>Orders</a><a className={view === 'regular' ? 'active' : ''} onClick={() => setView('regular')}>Regular orders</a><a>Settings</a></nav><div className="sidebar-note">Manual sync only<br/><small>Google Sheets is the data source</small></div></aside>
     <nav className="mobile-nav" aria-label="Main navigation"><button className={view === 'orders' ? 'active' : ''} onClick={() => setView('orders')}>Orders</button><button className={view === 'regular' ? 'active' : ''} onClick={() => setView('regular')}>Regular orders</button></nav>
@@ -41,6 +45,11 @@ export default function Home() {
     </section>
     {selected && <PaymentModal order={selected} setOrder={setSelected} save={save} cancel={() => setSelected(null)} saving={saving} />}
   <StatusStyles /></main>;
+}
+function Login({ onSignedIn }: { onSignedIn: (user: string) => void }) {
+  const [username, setUsername] = useState(''); const [password, setPassword] = useState(''); const [error, setError] = useState(''); const [busy, setBusy] = useState(false);
+  const submit = async (event: React.FormEvent) => { event.preventDefault(); setBusy(true); setError(''); const response = await fetch('/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username, password }) }); const json = await response.json(); setBusy(false); if (!response.ok) setError(json.error || 'Unable to sign in.'); else onSignedIn(json.user); };
+  return <main className="login-page"><form className="login-card" onSubmit={submit}><div className="login-mark">TSF</div><p className="eyebrow">Sales Orders</p><h1>Sign in</h1><p className="subtitle">Use your ERP username and password.</p>{error && <p className="notice">{error}</p>}<label>ERP username<input value={username} onChange={(e) => setUsername(e.target.value)} autoComplete="username" required /></label><label>Password<input type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" required /></label><button className="primary" disabled={busy}>{busy ? 'Signing in…' : 'Sign in'}</button></form></main>;
 }
 function Metric({ label, value, accent = false }: { label: string; value: string; accent?: boolean }) { return <article className={accent ? 'metric accent' : 'metric'}><p>{label}</p><strong>{value}</strong></article>; }
 function PaymentModal({ order, setOrder, save, cancel, saving }: { order: Order; setOrder: (order: Order) => void; save: () => void; cancel: () => void; saving: boolean }) {
