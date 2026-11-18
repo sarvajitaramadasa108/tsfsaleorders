@@ -20,14 +20,20 @@ function erpSessionCookie(headers: Headers) {
   return `sid=${match[1]}`;
 }
 
+async function erpAuthHeaders(base: string, user: string, password: string) {
+  const apiKey = process.env.ERP_API_KEY; const apiSecret = process.env.ERP_API_SECRET;
+  if (apiKey && apiSecret) return { Authorization: `token ${apiKey}:${apiSecret}`, Accept: 'application/json' };
+  const login = await fetch(`${base}/api/method/login`, { method: 'POST', body: new URLSearchParams({ usr: user, pwd: password }) });
+  if (!login.ok) throw new Error('ERP login failed.');
+  return { Cookie: erpSessionCookie(login.headers), Accept: 'application/json' };
+}
+
 export async function GET(request: Request) {
   try {
-    const user = process.env.ERP_USER; const password = process.env.ERP_PASSWORD;
+    const user = process.env.ERP_USER || ''; const password = process.env.ERP_PASSWORD || '';
     const base = process.env.ERP_URL || 'https://hkmvizagerp.frappe.cloud';
-    if (!user || !password) throw new Error('ERP credentials are not configured.');
-    const login = await fetch(`${base}/api/method/login`, { method: 'POST', body: new URLSearchParams({ usr: user, pwd: password }) });
-    if (!login.ok) throw new Error('ERP login failed.');
-    const cookie = erpSessionCookie(login.headers);
+    if ((!process.env.ERP_API_KEY || !process.env.ERP_API_SECRET) && (!user || !password)) throw new Error('ERP credentials are not configured.');
+    const authHeaders = await erpAuthHeaders(base, user, password);
     const requestedMonth = new URL(request.url).searchParams.get('month');
     const today = new Date();
     const [year, month] = requestedMonth?.match(/^\d{4}-\d{2}$/) ? requestedMonth.split('-').map(Number) : [today.getFullYear(), today.getMonth() + 1];
@@ -38,10 +44,10 @@ export async function GET(request: Request) {
     const url = new URL(`${base}/api/resource/Sales%20Order`);
     url.searchParams.set('fields', JSON.stringify(fields)); url.searchParams.set('filters', JSON.stringify(filters));
     url.searchParams.set('order_by', 'transaction_date asc'); url.searchParams.set('limit_page_length', '500');
-    let response = await fetch(url, { headers: { Cookie: cookie, Accept: 'application/json' } });
+    let response = await fetch(url, { headers: authHeaders });
     // ERP Cloud can occasionally return a short-lived gateway/server error. Retry once
     // before reporting it to the user.
-    if (!response.ok && response.status >= 500) response = await fetch(url, { headers: { Cookie: cookie, Accept: 'application/json' } });
+    if (!response.ok && response.status >= 500) response = await fetch(url, { headers: authHeaders });
     if (!response.ok) {
       const detail = (await response.text()).replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').slice(0, 180);
       throw new Error(`ERP order lookup failed (${response.status})${detail ? `: ${detail}` : '.'}`);

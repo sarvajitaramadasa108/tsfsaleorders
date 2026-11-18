@@ -44,6 +44,14 @@ function erpSessionCookie(headers: Headers) {
   return `sid=${match[1]}`;
 }
 
+async function erpAuthHeaders(base: string, user: string, password: string) {
+  const apiKey = process.env.ERP_API_KEY; const apiSecret = process.env.ERP_API_SECRET;
+  if (apiKey && apiSecret) return { Authorization: `token ${apiKey}:${apiSecret}`, Accept: 'application/json' };
+  const login = await fetch(`${base}/api/method/login`, { method: 'POST', body: new URLSearchParams({ usr: user, pwd: password }) });
+  if (!login.ok) throw new Error('ERP login failed.');
+  return { Cookie: erpSessionCookie(login.headers), Accept: 'application/json' };
+}
+
 function sheets() {
   const email = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
   const key = process.env.GOOGLE_PRIVATE_KEY?.replace(/\\n/g, '\n');
@@ -143,12 +151,10 @@ export async function recordPayment(sheet: string, order: SaleOrder, payment: Pa
 export async function syncCurrentMonth() {
   const { sheet, orders: currentOrders } = await readOrders();
   const paymentsLogged = await reconcileManualPayments(sheet, currentOrders);
-  const user = process.env.ERP_USER; const password = process.env.ERP_PASSWORD;
+  const user = process.env.ERP_USER || ''; const password = process.env.ERP_PASSWORD || '';
   const base = process.env.ERP_URL || 'https://hkmvizagerp.frappe.cloud';
-  if (!user || !password) throw new Error('ERP credentials are not configured.');
-  const login = await fetch(`${base}/api/method/login`, { method: 'POST', body: new URLSearchParams({ usr: user, pwd: password }) });
-  if (!login.ok) throw new Error('ERP login failed.');
-  const cookie = erpSessionCookie(login.headers);
+  if ((!process.env.ERP_API_KEY || !process.env.ERP_API_SECRET) && (!user || !password)) throw new Error('ERP credentials are not configured.');
+  const authHeaders = await erpAuthHeaders(base, user, password);
   const today = new Date(); const start = new Date(today.getFullYear(), today.getMonth(), 1).toISOString().slice(0, 10);
   const end = new Date(today.getFullYear(), today.getMonth() + 1, 0).toISOString().slice(0, 10);
   const fields = ['name', 'transaction_date', 'customer', 'customer_name', 'contact_mobile', 'no_of_pax', 'grand_total', 'company', 'kitchen_order_type', 'set_warehouse'];
@@ -156,7 +162,7 @@ export async function syncCurrentMonth() {
   const url = new URL(`${base}/api/resource/Sales%20Order`);
   url.searchParams.set('fields', JSON.stringify(fields)); url.searchParams.set('filters', JSON.stringify(filters));
   url.searchParams.set('order_by', 'transaction_date asc'); url.searchParams.set('limit_page_length', '500');
-  const response = await fetch(url, { headers: { Cookie: cookie, Accept: 'application/json' } });
+  const response = await fetch(url, { headers: authHeaders });
   if (!response.ok) throw new Error('ERP order lookup failed.');
   const payload = await response.json() as { data: Array<Record<string, unknown>> };
   const existing = new Set(currentOrders.map((order) => order.so));
