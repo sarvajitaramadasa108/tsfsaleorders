@@ -4,3 +4,7 @@ node_modules
 .vercel
 *.log
 tsconfig.tsbuildinfo
+android/.gradle/
+android/build/
+android/local.properties
+android/app/build/
