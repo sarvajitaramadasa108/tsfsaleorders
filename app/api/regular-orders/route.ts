@@ -2,13 +2,16 @@ import { NextResponse } from 'next/server';
 
 export const dynamic = 'force-dynamic';
 
+// Compare a stable, punctuation-free version because ERP customer names can vary
+// slightly (for example, “HKMCF- AP” versus “HKMCF-AP”).
+const regularCustomerKey = (value: unknown) => String(value || '').toLowerCase().replace(/[^a-z0-9]/g, '');
 const REGULAR_CUSTOMERS = new Set([
-  'gvmc night shelters', 'master homoeo vaidyalayam', 'industrial chemical corporation',
-  'hkmcf-industrial estate', 'hkmcf- ap atchutapuram', 'umarama lingeswara swamy temple',
-  'lotus wireless technologies india pvt. ltd.', 'hkmcf-ap kakinada', 'hkmcf ap -bobbili',
-  'hkmcf- ap srikakulam', 'ssvpm temple mvp colony', 'sri hanuman charitable trust',
+  'gvmcnightshelters', 'masterhomoeovaidyalayam', 'masterhomeovaidyalayam',
+  'industrialchemicalcorporation', 'hkmcfindustrialestate', 'hkmcfapatchutapuram',
+  'umaramalingeswaraswamytemple', 'lotuswirelesstechnologiesindiapvtltd',
+  'hkmcfapkakinada', 'hkmcfapbobbili', 'hkmcfapsrikakulam',
+  'ssvpmtemplemvpcolony', 'srihanumancharitabletrust',
 ]);
-const normalize = (value: unknown) => String(value || '').trim().replace(/\s+/g, ' ').toLowerCase();
 
 export async function GET(request: Request) {
   try {
@@ -32,7 +35,7 @@ export async function GET(request: Request) {
     const response = await fetch(url, { headers: { Cookie: cookie, Accept: 'application/json' } });
     if (!response.ok) throw new Error('ERP order lookup failed.');
     const data = await response.json() as { data: Array<Record<string, unknown>> };
-    const orders = data.data.filter((order) => REGULAR_CUSTOMERS.has(normalize(order.customer_name || order.customer))).map((order) => ({
+    const orders = data.data.filter((order) => REGULAR_CUSTOMERS.has(regularCustomerKey(order.customer_name || order.customer))).map((order) => ({
       so: String(order.name || ''), date: String(order.transaction_date || ''), customer: String(order.customer_name || order.customer || ''),
       pax: Number(order.no_of_pax || 0), total: Number(order.grand_total || 0), status: String(order.status || ''),
     }));
