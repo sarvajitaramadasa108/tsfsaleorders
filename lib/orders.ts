@@ -95,7 +95,7 @@ export async function updateOrder(sheet: string, order: SaleOrder) {
 export type PaymentLog = { recordedAt: string; month: string; so: string; customer: string; amount: string; date: string; reference: string; mode: string };
 export async function readPaymentLog() {
   const response = await sheets().spreadsheets.values.get({ spreadsheetId: SPREADSHEET_ID, range: "'Payment Log'!A2:H10000" });
-  const payments = (response.data.values || []).map((row) => ({ recordedAt: row[0] || '', month: row[1] || '', so: row[2] || '', customer: row[3] || '', amount: row[4] || '', date: row[5] || '', reference: row[6] || '', mode: row[7] || '' })).filter((item) => item.so).reverse();
+  const payments = (response.data.values || []).map((row) => ({ recordedAt: row[0] || '', month: row[1] || '', so: row[2] || '', customer: row[3] || '', amount: row[4] || '', date: row[5] || '', reference: row[6] || '', mode: row[7] || '' })).filter((item) => item.so).sort((a, b) => Date.parse(b.recordedAt) - Date.parse(a.recordedAt));
   return { payments };
 }
 
