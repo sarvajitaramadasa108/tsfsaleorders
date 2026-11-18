@@ -32,8 +32,14 @@ export async function GET(request: Request) {
     const url = new URL(`${base}/api/resource/Sales%20Order`);
     url.searchParams.set('fields', JSON.stringify(fields)); url.searchParams.set('filters', JSON.stringify(filters));
     url.searchParams.set('order_by', 'transaction_date asc'); url.searchParams.set('limit_page_length', '500');
-    const response = await fetch(url, { headers: { Cookie: cookie, Accept: 'application/json' } });
-    if (!response.ok) throw new Error('ERP order lookup failed.');
+    let response = await fetch(url, { headers: { Cookie: cookie, Accept: 'application/json' } });
+    // ERP Cloud can occasionally return a short-lived gateway/server error. Retry once
+    // before reporting it to the user.
+    if (!response.ok && response.status >= 500) response = await fetch(url, { headers: { Cookie: cookie, Accept: 'application/json' } });
+    if (!response.ok) {
+      const detail = (await response.text()).replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').slice(0, 180);
+      throw new Error(`ERP order lookup failed (${response.status})${detail ? `: ${detail}` : '.'}`);
+    }
     const data = await response.json() as { data: Array<Record<string, unknown>> };
     const orders = data.data.filter((order) => REGULAR_CUSTOMERS.has(regularCustomerKey(order.customer_name || order.customer))).map((order) => ({
       so: String(order.name || ''), date: String(order.transaction_date || ''), customer: String(order.customer_name || order.customer || ''),
