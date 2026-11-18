@@ -8,6 +8,7 @@ export type PaymentInput = { amount: string; date: string; reference: string };
 
 const SPREADSHEET_ID = process.env.GOOGLE_SHEET_ID || '1phTICQcIe6AxGWqCE9cVp-CGfjkFckayS8abds2XD34';
 const HEADER = ['Date', 'SO', 'Customer', 'Mobile', 'Pax', 'Total Amount', 'Credit', 'Credit Date', 'UTR', 'Balance', 'Status'];
+const NON_MONTH_SHEETS = new Set(['templates', 'unpaid orders', 'payment log', 'sheet1']);
 const EXCLUDED_CUSTOMERS = new Set([
   'gvmc night shelters', 'master homoeo vaidyalayam', 'industrial chemical corporation',
   'hkmcf-industrial estate', 'hkmcf- ap atchutapuram', 'umarama lingeswara swamy temple',
@@ -69,6 +70,11 @@ export async function monthSheetName(requested?: string) {
   return titles.find((title) => title.toLowerCase() === current.toLowerCase()) || current;
 }
 
+async function monthlySheets() {
+  const meta = await sheets().spreadsheets.get({ spreadsheetId: SPREADSHEET_ID, fields: 'sheets.properties.title' });
+  return (meta.data.sheets?.map((item) => item.properties?.title || '') || []).filter((title) => !NON_MONTH_SHEETS.has(title.toLowerCase()));
+}
+
 export async function readOrders(requestedSheet?: string) {
   const sheet = await monthSheetName(requestedSheet);
   const response = await sheets().spreadsheets.values.get({ spreadsheetId: SPREADSHEET_ID, range: `'${sheet}'!A1:K1000` });
@@ -78,7 +84,7 @@ export async function readOrders(requestedSheet?: string) {
     pax: value[4] || '', total: value[5] || '', credit: value[6] || '', creditDate: formatSheetDate(value[7]),
     utr: value[8] || '', balance: value[9] || '', status: value[10] || '',
   })).filter((order) => order.so).sort((a, b) => dateSortValue(b.date) - dateSortValue(a.date) || b.row - a.row);
-  return { sheet, orders };
+  return { sheet, orders, sheets: await monthlySheets() };
 }
 
 export async function updateOrder(sheet: string, order: SaleOrder) {
