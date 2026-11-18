@@ -20,7 +20,7 @@ function erpSessionCookie(headers: Headers) {
   return `sid=${match[1]}`;
 }
 
-async function erpAuthHeaders(base: string, user: string, password: string) {
+async function erpAuthHeaders(base: string, user: string, password: string): Promise<Record<string, string>> {
   const apiKey = process.env.ERP_API_KEY; const apiSecret = process.env.ERP_API_SECRET;
   if (apiKey && apiSecret) return { Authorization: `token ${apiKey}:${apiSecret}`, Accept: 'application/json' };
   const login = await fetch(`${base}/api/method/login`, { method: 'POST', headers: { Accept: 'application/json', 'Content-Type': 'application/json' }, body: JSON.stringify({ usr: user, pwd: password }), cache: 'no-store' });
