@@ -37,6 +37,13 @@ function formatSheetDate(value: unknown) {
 
 function dateSortValue(value: string) { return parseSheetDate(value)?.getTime() || 0; }
 
+function erpSessionCookie(headers: Headers) {
+  const raw = headers.get('set-cookie') || '';
+  const match = raw.match(/(?:^|,\s*)sid=([^;,\s]+)/i);
+  if (!match) throw new Error('ERP login did not return a session cookie.');
+  return `sid=${match[1]}`;
+}
+
 function sheets() {
   const email = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
   const key = process.env.GOOGLE_PRIVATE_KEY?.replace(/\\n/g, '\n');
@@ -141,8 +148,7 @@ export async function syncCurrentMonth() {
   if (!user || !password) throw new Error('ERP credentials are not configured.');
   const login = await fetch(`${base}/api/method/login`, { method: 'POST', body: new URLSearchParams({ usr: user, pwd: password }) });
   if (!login.ok) throw new Error('ERP login failed.');
-  const cookie = login.headers.get('set-cookie')?.split(';')[0];
-  if (!cookie) throw new Error('ERP login did not return a session cookie.');
+  const cookie = erpSessionCookie(login.headers);
   const today = new Date(); const start = new Date(today.getFullYear(), today.getMonth(), 1).toISOString().slice(0, 10);
   const end = new Date(today.getFullYear(), today.getMonth() + 1, 0).toISOString().slice(0, 10);
   const fields = ['name', 'transaction_date', 'customer', 'customer_name', 'contact_mobile', 'no_of_pax', 'grand_total', 'company', 'kitchen_order_type', 'set_warehouse'];

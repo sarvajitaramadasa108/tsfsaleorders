@@ -13,6 +13,13 @@ const REGULAR_CUSTOMERS = new Set([
   'ssvpmtemplemvpcolony', 'srihanumancharitabletrust',
 ]);
 
+function erpSessionCookie(headers: Headers) {
+  const raw = headers.get('set-cookie') || '';
+  const match = raw.match(/(?:^|,\s*)sid=([^;,\s]+)/i);
+  if (!match) throw new Error('ERP login did not return a session cookie.');
+  return `sid=${match[1]}`;
+}
+
 export async function GET(request: Request) {
   try {
     const user = process.env.ERP_USER; const password = process.env.ERP_PASSWORD;
@@ -20,8 +27,7 @@ export async function GET(request: Request) {
     if (!user || !password) throw new Error('ERP credentials are not configured.');
     const login = await fetch(`${base}/api/method/login`, { method: 'POST', body: new URLSearchParams({ usr: user, pwd: password }) });
     if (!login.ok) throw new Error('ERP login failed.');
-    const cookie = login.headers.get('set-cookie')?.split(';')[0];
-    if (!cookie) throw new Error('ERP login did not return a session cookie.');
+    const cookie = erpSessionCookie(login.headers);
     const requestedMonth = new URL(request.url).searchParams.get('month');
     const today = new Date();
     const [year, month] = requestedMonth?.match(/^\d{4}-\d{2}$/) ? requestedMonth.split('-').map(Number) : [today.getFullYear(), today.getMonth() + 1];
