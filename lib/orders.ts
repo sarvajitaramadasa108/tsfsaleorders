@@ -81,6 +81,38 @@ async function ensurePaymentLog() {
   }
 }
 
+// Reconcile payments typed directly into a monthly order tab. Credit is treated as
+// the cumulative amount received; only the not-yet-logged difference is appended.
+async function reconcileManualPayments(sheet: string, orders: SaleOrder[]) {
+  await ensurePaymentLog();
+  const api = sheets();
+  const log = await api.spreadsheets.values.get({ spreadsheetId: SPREADSHEET_ID, range: "'Payment Log'!A2:H10000" });
+  const loggedByOrder = new Map<string, number>();
+  for (const row of log.data.values || []) {
+    if (String(row[1] || '') !== sheet) continue;
+    const key = String(row[2] || '');
+    loggedByOrder.set(key, (loggedByOrder.get(key) || 0) + (Number(row[4]) || 0));
+  }
+  const paymentRows: (string | number)[][] = [];
+  const summaryUpdates: { range: string; values: (string | number)[][] }[] = [];
+  for (const order of orders) {
+    const total = Number(order.total) || 0;
+    const credit = Math.max(0, Number(order.credit) || 0);
+    const logged = loggedByOrder.get(order.so) || 0;
+    const remaining = Math.max(0, Math.round((total - credit) * 100) / 100);
+    const status = credit <= 0 ? 'Unpaid' : remaining === 0 ? 'Paid' : 'Partially Paid';
+    if (String(order.balance) !== String(remaining) || order.status !== status) summaryUpdates.push({ range: `'${sheet}'!J${order.row}:K${order.row}`, values: [[remaining, status]] });
+    if (credit > logged) {
+      const difference = Math.round((credit - logged) * 100) / 100;
+      const reference = order.utr.trim();
+      paymentRows.push([new Date().toISOString(), sheet, order.so, order.customer, difference, order.creditDate || formatSheetDate(new Date().toISOString()), reference, reference ? 'Bank / UTR' : 'Cash']);
+    }
+  }
+  if (summaryUpdates.length) await api.spreadsheets.values.batchUpdate({ spreadsheetId: SPREADSHEET_ID, requestBody: { valueInputOption: 'USER_ENTERED', data: summaryUpdates } });
+  if (paymentRows.length) await api.spreadsheets.values.append({ spreadsheetId: SPREADSHEET_ID, range: "'Payment Log'!A:H", valueInputOption: 'USER_ENTERED', insertDataOption: 'INSERT_ROWS', requestBody: { values: paymentRows } });
+  return paymentRows.length;
+}
+
 export async function recordPayment(sheet: string, order: SaleOrder, payment: PaymentInput) {
   const amount = Number(payment.amount);
   if (!Number.isFinite(amount) || amount <= 0) throw new Error('Enter a payment amount greater than zero.');
@@ -103,6 +135,7 @@ export async function recordPayment(sheet: string, order: SaleOrder, payment: Pa
 
 export async function syncCurrentMonth() {
   const { sheet, orders: currentOrders } = await readOrders();
+  const paymentsLogged = await reconcileManualPayments(sheet, currentOrders);
   const user = process.env.ERP_USER; const password = process.env.ERP_PASSWORD;
   const base = process.env.ERP_URL || 'https://hkmvizagerp.frappe.cloud';
   if (!user || !password) throw new Error('ERP credentials are not configured.');
@@ -122,8 +155,8 @@ export async function syncCurrentMonth() {
   const payload = await response.json() as { data: Array<Record<string, unknown>> };
   const existing = new Set(currentOrders.map((order) => order.so));
   const incoming = payload.data.filter((order) => !existing.has(String(order.name)) && !EXCLUDED_CUSTOMERS.has(normalize(String(order.customer_name || order.customer || ''))));
-  if (!incoming.length) return { sheet, added: 0 };
+  if (!incoming.length) return { sheet, added: 0, paymentsLogged };
   const rows = incoming.map((order) => [String(order.transaction_date || ''), String(order.name || ''), String(order.customer_name || order.customer || ''), String(order.contact_mobile || ''), Number(order.no_of_pax || 0), Math.round(Number(order.grand_total || 0) * 100) / 100, '', '', '', Math.round(Number(order.grand_total || 0) * 100) / 100, 'Unpaid']);
   await sheets().spreadsheets.values.append({ spreadsheetId: SPREADSHEET_ID, range: `'${sheet}'!A:K`, valueInputOption: 'USER_ENTERED', insertDataOption: 'INSERT_ROWS', requestBody: { values: rows } });
-  return { sheet, added: rows.length };
+  return { sheet, added: rows.length, paymentsLogged };
 }
