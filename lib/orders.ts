@@ -4,6 +4,7 @@ export type SaleOrder = {
   row: number; date: string; so: string; customer: string; mobile: string; pax: string;
   total: string; credit: string; creditDate: string; utr: string; balance: string; status: string;
 };
+export type PaymentInput = { amount: string; date: string; reference: string };
 
 const SPREADSHEET_ID = process.env.GOOGLE_SHEET_ID || '1phTICQcIe6AxGWqCE9cVp-CGfjkFckayS8abds2XD34';
 const HEADER = ['Date', 'SO', 'Customer', 'Mobile', 'Pax', 'Total Amount', 'Credit', 'Credit Date', 'UTR', 'Balance', 'Status'];
@@ -68,6 +69,36 @@ export async function readOrders(requestedSheet?: string) {
 export async function updateOrder(sheet: string, order: SaleOrder) {
   const values = [[order.date, order.so, order.customer, order.mobile, order.pax, order.total, order.credit, order.creditDate, order.utr, order.balance, order.status]];
   await sheets().spreadsheets.values.update({ spreadsheetId: SPREADSHEET_ID, range: `'${sheet}'!A${order.row}:K${order.row}`, valueInputOption: 'USER_ENTERED', requestBody: { values } });
+}
+
+async function ensurePaymentLog() {
+  const api = sheets();
+  const meta = await api.spreadsheets.get({ spreadsheetId: SPREADSHEET_ID, fields: 'sheets.properties.title' });
+  const exists = meta.data.sheets?.some((item) => item.properties?.title === 'Payment Log');
+  if (!exists) {
+    await api.spreadsheets.batchUpdate({ spreadsheetId: SPREADSHEET_ID, requestBody: { requests: [{ addSheet: { properties: { title: 'Payment Log' } } }] } });
+    await api.spreadsheets.values.update({ spreadsheetId: SPREADSHEET_ID, range: "'Payment Log'!A1:H1", valueInputOption: 'USER_ENTERED', requestBody: { values: [['Recorded at', 'Order month', 'Sales order', 'Customer', 'Amount received', 'Payment date', 'UTR / reference', 'Payment mode']] } });
+  }
+}
+
+export async function recordPayment(sheet: string, order: SaleOrder, payment: PaymentInput) {
+  const amount = Number(payment.amount);
+  if (!Number.isFinite(amount) || amount <= 0) throw new Error('Enter a payment amount greater than zero.');
+  const total = Number(order.total) || 0;
+  const previousCredit = Number(order.credit) || 0;
+  const newCredit = Math.round((previousCredit + amount) * 100) / 100;
+  const balance = Math.max(0, Math.round((total - newCredit) * 100) / 100);
+  const status = balance === 0 ? 'Paid' : 'Partially Paid';
+  const paymentDate = formatSheetDate(payment.date || new Date().toISOString().slice(0, 10));
+  const reference = payment.reference.trim() || 'Cash';
+  const updated = { ...order, credit: String(newCredit), creditDate: paymentDate, utr: reference, balance: String(balance), status };
+  await updateOrder(sheet, updated);
+  await ensurePaymentLog();
+  await sheets().spreadsheets.values.append({
+    spreadsheetId: SPREADSHEET_ID, range: "'Payment Log'!A:H", valueInputOption: 'USER_ENTERED', insertDataOption: 'INSERT_ROWS',
+    requestBody: { values: [[new Date().toISOString(), sheet, order.so, order.customer, amount, paymentDate, payment.reference.trim(), payment.reference.trim() ? 'Bank / UTR' : 'Cash']] },
+  });
+  return updated;
 }
 
 export async function syncCurrentMonth() {
